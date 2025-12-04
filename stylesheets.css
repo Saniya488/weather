@@ -1,0 +1,182 @@
+/* Custom styles to complement Tailwind CSS */
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: #111827; /* Tailwind gray-900 as fallback */
+}
+.font-roboto {
+    font-family: 'Roboto', sans-serif;
+}
+#city-input {
+    transition: all 0.3s ease;
+}
+#city-input:focus {
+    border-color: #2563eb; /* Tailwind blue-600 */
+}
+#city-input::placeholder {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+.animate-placeholder::placeholder {
+    animation: pulse-placeholder 2s infinite;
+}
+@keyframes pulse-placeholder {
+    0% { opacity: 0.6; }
+    50% { opacity: 1; }
+    100% { opacity: 0.6; }
+}
+button {
+    transition: all 0.3s ease;
+}
+button:hover {
+    transform: translateY(-1px);
+}
+.weather-icon-extra, .forecast-card img, .hourly-card img {
+    filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.8));
+}
+.weather-card, .forecast-card, .hourly-card, #welcome {
+    background: transparent;
+    border-radius: 8px;
+    text-align: center;
+    color: white;
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+    transition: transform 0.2s ease-in-out, box-shadow 0.2s ease-in-out;
+}
+.weather-card:hover, .forecast-card:hover, .hourly-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 4px 12px rgba(0, 0, 0, 0.4);
+}
+.text-shadow {
+    text-shadow: 0 2px 6px rgba(0, 0, 0, 0.8);
+}
+#suggestions li {
+    padding: 0.5rem;
+    cursor: pointer;
+    color: #111827; 
+    text-shadow: none; 
+    transition: background 0.2s ease;
+    background: white;
+}
+#suggestions li:hover {
+    background: #d1d5db; /* Tailwind gray-300 for better contrast */
+}
+body.default {
+    background-image: url('https://images.unsplash.com/photo-1507525428034-b723cf961d3e');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+body.clear {
+    background-image: url('https://images.unsplash.com/photo-1469122312224-a1d67249c51b');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+body.clouds {
+    background-image: url('https://images.unsplash.com/photo-1499346030926-9a72daac6c63');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+body.rain {
+    background-image: url('https://images.unsplash.com/photo-1515694346937-94d85c0a56cb');
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+}
+body.international {
+    background-color: #4B0082; /* Indigo for international cities */
+    background-image: none; /* Remove any background image */
+}
+.animate-fade-in {
+    animation: fadeIn 1s ease-in-out;
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.weather-icon-extra {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto;
+    animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.1); }
+    100% { transform: scale(1); }
+}
+/* Professional animation for the microphone button */
+.animate-mic-glow {
+    animation: mic-glow 1.5s infinite alternate ease-in-out;
+    box-shadow: 0 0 8px rgba(255, 255, 255, 0.6);
+}
+@keyframes mic-glow {
+    from {
+        box-shadow: 0 0 5px rgba(255, 255, 255, 0.4);
+    }
+    to {
+        box-shadow: 0 0 15px rgba(255, 255, 255, 0.8);
+    }
+}
+@media (max-width: 640px) {
+    main {
+        margin: 0.5rem;
+    }
+    .text-3xl {
+        font-size: 1.75rem;
+    }
+    .text-2xl {
+        font-size: 1.25rem;
+    }
+    .text-xl {
+        font-size: 1rem;
+    }
+    .text-base {
+        font-size: 0.875rem;
+    }
+    .text-sm {
+        font-size: 0.75rem;
+    }
+    .text-xs {
+        font-size: 0.65rem;
+    }
+    #forecast-container, #hourly-container {
+        grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+        gap: 0.5rem;
+    }
+    .grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .grid-cols-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+
+    #city-input {
+        font-size: 0.875rem;
+        padding: 0.75rem;
+    }
+    button {
+        padding: 0.75rem;
+        font-size: 0.875rem;
+    }
+    #welcome {
+        padding: 1rem;
+        font-size: 0.875rem;
+    }
+    .weather-card, .forecast-card, .hourly-card {
+        padding: 0.5rem;
+    }
+    #suggestions li {
+        font-size: 0.75rem;
+        padding: 0.4rem;
+    }
+}
+@media (min-width: 641px) and (max-width: 1024px) {
+    main {
+        margin: 1rem;
+    }
+    #forecast-container {
+        grid-template-columns: repeat(3, 1fr);
+    }
+    #hourly-container {
+        grid-template-columns: repeat(4, 1fr);
+    }
+    .weather-card, .forecast-card, .hourly-card {
+        padding: 0.75rem;
+    }
+}

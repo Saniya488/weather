@@ -405,6 +405,200 @@ document.addEventListener('DOMContentLoaded', () => {
 
         recognition.onend = () => {
             voiceSearchBtn.classList.remove('animate-mic-glow');
+            cityInput.placeholder = 'Enter cityat}&lon=${lon}&units=metric`;
+        
+        const weatherResponse = await Promise.race([fetch(getProxiedUrl(weatherEndpoint)), timeoutPromise]);
+        if (!weatherResponse.ok) {
+            throw new Error(`Weather API error (${weatherResponse.status}).`);
+        }
+        weatherDataFromAPI = await weatherResponse.json();
+
+        const airQualityResponse = await Promise.race([fetch(getProxiedUrl(airQualityEndpoint)), timeoutPromise]);
+        const airQualityData = airQualityResponse.ok ? await airQualityResponse.json() : { list: [{ main: { aqi: 'N/A' } }] };
+
+        const forecastResponse = await Promise.race([fetch(getProxiedUrl(forecastEndpoint)), timeoutPromise]);
+        if (!forecastResponse.ok) {
+            throw new Error('Forecast data unavailable. Try a different location.');
+        }
+        const forecastData = await forecastResponse.json();
+
+        // --- DISPLAY LOGIC ---
+        
+        let alertMessage = '';
+        if (weatherDataFromAPI.alerts && weatherDataFromAPI.alerts.length > 0) {
+            alertMessage = weatherDataFromAPI.alerts.map(alert => `${alert.event}: ${alert.description}`).join(' | ');
+            alertsDiv.textContent = `Weather Alerts: ${alertMessage}`;
+            alertsDiv.classList.remove('hidden');
+        }
+
+        document.getElementById('city-name').textContent = displayName;
+        document.getElementById('temperature').textContent = `${Math.round(weatherDataFromAPI.main.temp)}°C`;
+        document.getElementById('feels-like').textContent = `${Math.round(weatherDataFromAPI.main.feels_like)}°C`;
+        document.getElementById('description').textContent = weatherDataFromAPI.weather[0].description;
+        document.getElementById('humidity').textContent = `${weatherDataFromAPI.main.humidity}%`;
+        document.getElementById('pressure').textContent = `${weatherDataFromAPI.main.pressure} hPa`;
+        document.getElementById('wind').textContent = `${weatherDataFromAPI.wind.speed} m/s`;
+        document.getElementById('precipitation').textContent = `${Math.round(forecastData.list[0].pop * 100)}%`;
+        
+        const aqi = airQualityData.list[0].main.aqi !== undefined ? airQualityData.list[0].main.aqi : 'N/A';
+        const aqiText = aqi === 1 ? 'Good' : aqi === 2 ? 'Fair' : aqi === 3 ? 'Moderate' : aqi === 4 ? 'Poor' : aqi === 5 ? 'Very Poor' : 'Unknown';
+        document.getElementById('air-quality').textContent = `${aqi} (${aqiText})`;
+
+        const uvi = weatherDataFromAPI.uvi || 'N/A'; 
+        const uviText = uvi === 'N/A' ? 'Not available' : uvi <= 2 ? 'Low - Safe' : uvi <= 5 ? 'Moderate - Wear sunscreen' : uvi <= 7 ? 'High - Use sunscreen and hat' : uvi <= 10 ? 'Very High - Limit sun exposure' : 'Extreme - Avoid sun exposure';
+        document.getElementById('uv-index').textContent = `${uvi} (${uviText})`;
+
+        document.getElementById('sunrise').textContent = `${new Date(weatherDataFromAPI.sys.sunrise * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+        document.getElementById('sunset').textContent = `${new Date(weatherDataFromAPI.sys.sunset * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`;
+        document.getElementById('weather-icon').src = `https://openweathermap.org/img/wn/${weatherDataFromAPI.weather[0].icon}@2x.png`;
+
+        const now = new Date();
+        const currentHour = now.getHours();
+        const timeContext = currentHour < 12 ? 'Morning' : currentHour < 17 ? 'Afternoon' : currentHour < 20 ? 'Evening' : 'Night';
+        document.getElementById('time-context').textContent = `${timeContext} Weather, ${now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })} (Updated: ${now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })})`;
+
+        const weatherDescription = weatherDataFromAPI.weather[0].description.toLowerCase();
+        let weatherMainClass = 'default';
+
+        if (weatherDescription.includes('rain') || weatherDescription.includes('shower')) {
+            weatherMainClass = 'rain';
+        } else if (weatherDescription.includes('cloud')) {
+            weatherMainClass = 'clouds';
+        } else if (weatherDescription.includes('clear')) {
+            weatherMainClass = 'clear';
+        } else if (weatherDescription.includes('snow')) {
+            weatherMainClass = 'snow';
+        }
+
+        // Apply the relevant class for background image change
+        document.body.className = `flex flex-col min-h-screen ${weatherMainClass} bg-fixed font-inter transition-background duration-500`;
+
+        const hourlyContainer = document.getElementById('hourly-container');
+        hourlyContainer.innerHTML = '';
+        const hourlyData = forecastData.list.slice(0, 8);
+        hourlyData.forEach((hour) => {
+            const time = new Date(hour.dt * 1000).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+            const card = `
+                <div class="hourly-card bg-white bg-opacity-10 p-2 rounded-lg">
+                    <p class="font-medium">${time}</p>
+                    <img src="https://openweathermap.org/img/wn/${hour.weather[0].icon}@2x.png" alt="Hourly icon" class="w-8 h-8 mx-auto weather-icon-extra">
+                    <p>${Math.round(hour.main.temp)}°C</p>
+                    <p class="text-sm">Precip: ${Math.round(hour.pop * 100)}%</p>
+                </div>
+            `;
+            hourlyContainer.insertAdjacentHTML('beforeend', card);
+        });
+
+        const forecastContainer = document.getElementById('forecast-container');
+        forecastContainer.innerHTML = '';
+        const dailyData = forecastData.list.filter(item => item.dt_txt.includes('12:00:00'));
+        dailyData.slice(0, 5).forEach((day) => {
+            const date = new Date(day.dt * 1000).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+            const card = `
+                <div class="forecast-card bg-white bg-opacity-10 p-2 rounded-lg">
+                    <p class="font-semibold">${date}</p>
+                    <img src="https://openweathermap.org/img/wn/${day.weather[0].icon}@2x.png" alt="Forecast icon" class="w-10 h-10 mx-auto weather-icon-extra">
+                    <p>${Math.round(day.main.temp)}°C</p>
+                    <p class="capitalize text-sm">${day.weather[0].description}</p>
+                </div>
+            `;
+            forecastContainer.insertAdjacentHTML('beforeend', card);
+        });
+
+        weatherInfo.classList.remove('hidden');
+        forecastSection.classList.remove('hidden');
+        hourlySection.classList.remove('hidden');
+        errorDiv.classList.add('hidden');
+        loading.classList.add('hidden');
+
+        if (isManualInput) {
+            localStorage.setItem('lastLocation', originalInput);
+        }
+    } catch (error) {
+        console.error('Error in getWeather:', error);
+        showError(error.message);
+    }
+}
+
+// --- DOM Event Listeners ---
+
+document.addEventListener('DOMContentLoaded', () => {
+    const voiceSearchBtn = document.getElementById('voice-search-btn');
+    const cityInput = document.getElementById('city-input');
+
+    if (cityInput) {
+        cityInput.value = '';
+    }
+
+    welcomeDiv.classList.remove('hidden');
+    weatherInfo.classList.add('hidden');
+    forecastSection.classList.add('hidden');
+    hourlySection.classList.add('hidden');
+    errorDiv.classList.add('hidden');
+    alertsDiv.classList.add('hidden');
+    cityLocation.classList.add('hidden');
+
+    if (cityInput) {
+        cityInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') getWeather();
+        });
+
+        let debounceTimeout;
+        cityInput.addEventListener('input', (e) => {
+            clearTimeout(debounceTimeout);
+            debounceTimeout = setTimeout(async () => {
+                const query = e.target.value.trim();
+                if (!query) {
+                    suggestionsDiv.classList.add('hidden');
+                    return;
+                }
+                const suggestions = await fetchSuggestions(query); 
+                suggestionsDiv.innerHTML = '';
+                if (suggestions.length > 0) {
+                    suggestionsDiv.classList.remove('hidden');
+                    suggestions.forEach(suggestion => {
+                        const li = document.createElement('li');
+                        li.textContent = suggestion.name;
+                        li.className = 'p-2 cursor-pointer text-gray-900 hover:bg-gray-300 bg-white'; 
+                        li.addEventListener('click', () => {
+                            cityInput.value = suggestion.name;
+                            suggestionsDiv.classList.add('hidden');
+                            getWeather(null, suggestion.name);
+                        });
+                        suggestionsDiv.appendChild(li);
+                    });
+                } else {
+                    suggestionsDiv.classList.add('hidden');
+                }
+            }, 500);
+        });
+
+        document.addEventListener('click', (e) => {
+            if (!cityInput.contains(e.target) && !suggestionsDiv.contains(e.target)) {
+                suggestionsDiv.classList.add('hidden');
+            }
+        });
+    }
+
+    if ('webkitSpeechRecognition' in window) {
+        const recognition = new webkitSpeechRecognition();
+        recognition.continuous = false;
+        recognition.lang = 'en-US';
+
+        voiceSearchBtn.addEventListener('click', () => {
+            recognition.start();
+            voiceSearchBtn.classList.add('animate-mic-glow');
+            cityInput.placeholder = 'Listening...';
+        });
+
+        recognition.onresult = (event) => {
+            const transcript = event.results[0][0].transcript;
+            cityInput.value = transcript.trim();
+            getWeather();
+        };
+
+        recognition.onend = () => {
+            voiceSearchBtn.classList.remove('animate-mic-glow');
             cityInput.placeholder = 'Enter cityedUrl(airQualityEndpoint)), timeoutPromise]);
         const airQualityData = airQualityResponse.ok ? await airQualityResponse.json() : { list: [{ main: { aqi: 'N/A' } }] };
 

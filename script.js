@@ -2,7 +2,11 @@ async function getWeather(location = null, selectedCity = null) {
     const cityInput = document.getElementById('city-input');
     let input = (cityInput && typeof cityInput.value === 'string' ? cityInput.value.trim() : '') || location;
     const originalInput = input || 'Current Location';
-    const apiKey = '04a25b6616cd9d650bd9771e7862eb18'; // For a professional project, mention that this key would be stored on a backend server.
+    
+    // Developer Note: If this key gets auto-revoked by GitHub scanner bots, 
+    // users can register a free key at openweathermap.org and replace it here.
+    const apiKey = '04a25b6616cd9d650bd9771e7862eb18'; 
+    
     const geocodingUrl = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(input)}&limit=5&appid=${apiKey}`;
     const reverseGeocodingUrl = `https://api.openweathermap.org/geo/1.0/reverse?lat={lat}&lon={lon}&limit=5&appid=${apiKey}`;
     const airQualityUrl = `https://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid=${apiKey}`;
@@ -37,7 +41,9 @@ async function getWeather(location = null, selectedCity = null) {
 
     hideAllUI();
 
-    let lat, lon, weatherDataFromAPI, displayName = originalInput, locationDetails = '';
+    let lat, lon, weatherDataFromAPI, forecastData;
+    let displayName = originalInput;
+    let locationDetails = '';
     const isManualInput = !location && (typeof input === 'string' && input.trim()) || selectedCity;
 
     const districtMapping = {
@@ -57,8 +63,9 @@ async function getWeather(location = null, selectedCity = null) {
         'russia': 'RU', 'south korea': 'KR', 'nigeria': 'NG'
     };
 
+    // 12-second timeout to accommodate slower mobile networks
     const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Request timed out. Please try again.')), 10000);
+        setTimeout(() => reject(new Error('TIMEOUT')), 12000);
     });
 
     try {
@@ -98,86 +105,95 @@ async function getWeather(location = null, selectedCity = null) {
                 }
             }
             const query = country ? `${city},${country}` : city;
-            const geoResponse = await Promise.race([fetch(geocodingUrl.replace(encodeURIComponent(input), encodeURIComponent(query))), timeoutPromise]);
-            if (!geoResponse.ok) {
-                if (geoResponse.status === 401) {
-                    throw new Error('Invalid API key. Please verify your OpenWeatherMap API key in script.js.');
-                } else if (geoResponse.status === 429) {
-                    throw new Error('API rate limit exceeded. Please try again later or check your API key.');
-                } else {
-                    throw new Error(`Unable to find location "${query}". Please check spelling or try a larger nearby city (e.g., Lagos,NG).`);
-                }
-            }
-            const geoData = await geoResponse.json();
-            if (geoData.length === 0) {
-                throw new Error(`No results for "${query}". Try a larger nearby city (e.g., Lagos,NG) or check spelling.`);
-            }
-            if (geoData.length > 1 && !selectedCity && !country) {
-                suggestionsDiv.innerHTML = '';
-                suggestionsDiv.classList.remove('hidden');
-                geoData.forEach(city => {
-                    const suggestion = `${city.name}, ${city.country}`;
-                    const li = document.createElement('li');
-                    li.textContent = suggestion;
-                    li.className = 'p-2 cursor-pointer hover:bg-gray-300';
-                    li.addEventListener('click', () => {
-                        cityInput.value = suggestion;
-                        suggestionsDiv.classList.add('hidden');
-                        getWeather(null, suggestion);
-                    });
-                    suggestionsDiv.appendChild(li);
-                });
-                loading.classList.add('hidden');
-                return;
-            }
-            const selected = selectedCity ? geoData.find(city => `${city.name}, ${city.country}` === selectedCity) : geoData[0];
-            if (!selected) {
-                throw new Error(`No matching city found for "${query}". Try a larger nearby city (e.g., Lagos,NG).`);
-            }
-            lat = selected.lat;
-            lon = selected.lon;
-            displayName = selected.name + (selected.country ? `, ${selected.country}` : '');
 
-            if (isManualInput) {
-                if (selected.country === 'IN' && districtMapping[selected.name]) {
-                    locationDetails = `${selected.name}, ${districtMapping[selected.name]}`;
-                } else {
-                    locationDetails = `${selected.name}, ${selected.country}`;
+            let geoData = [];
+            let geoSuccess = false;
+
+            // Attempt Geocoding API with a try-catch so it doesn't crash the program if it fails or times out
+            try {
+                const geoResponse = await Promise.race([
+                    fetch(geocodingUrl.replace(encodeURIComponent(input), encodeURIComponent(query))), 
+                    timeoutPromise
+                ]);
+                if (geoResponse.ok) {
+                    geoData = await geoResponse.json();
+                    geoSuccess = true;
+                } else if (geoResponse.status === 401) {
+                    throw new Error('KEY_SUSPENDED');
                 }
-                cityLocation.textContent = locationDetails;
-                cityLocation.classList.remove('hidden');
+            } catch (err) {
+                if (err.message === 'KEY_SUSPENDED') throw err;
+                console.warn("Geocoding API failed or timed out. Attempting fallback direct query...", err);
+            }
+
+            // FALLBACK PATH: If Geocoding API fails or returns no results, query Weather API directly using city name
+            if (!geoSuccess || geoData.length === 0) {
+                const fallbackWeatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(query)}&appid=${apiKey}&units=metric`;
+                const fallbackForecastUrl = `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(query)}&appid=${apiKey}&units=metric`;
+
+                const weatherResponse = await Promise.race([fetch(fallbackWeatherUrl), timeoutPromise]);
+                if (!weatherResponse.ok) {
+                    handleHttpErrors(weatherResponse);
+                }
+                weatherDataFromAPI = await weatherResponse.json();
+                lat = weatherDataFromAPI.coord.lat;
+                lon = weatherDataFromAPI.coord.lon;
+                displayName = weatherDataFromAPI.name + (weatherDataFromAPI.sys.country ? `, ${weatherDataFromAPI.sys.country}` : '');
+
+                const forecastResponse = await Promise.race([fetch(fallbackForecastUrl), timeoutPromise]);
+                if (forecastResponse.ok) {
+                    forecastData = await forecastResponse.json();
+                } else {
+                    throw new Error("Unable to fetch forecast data.");
+                }
+            } else {
+                // PRIMARY PATH: Geocoding was successful
+                const selected = selectedCity ? geoData.find(city => `${city.name}, ${city.country}` === selectedCity) : geoData[0];
+                if (!selected) {
+                    throw new Error(`No matching city found for "${query}".`);
+                }
+                lat = selected.lat;
+                lon = selected.lon;
+                displayName = selected.name + (selected.country ? `, ${selected.country}` : '');
+
+                if (isManualInput) {
+                    if (selected.country === 'IN' && districtMapping[selected.name]) {
+                        locationDetails = `${selected.name}, ${districtMapping[selected.name]}`;
+                    } else {
+                        locationDetails = `${selected.name}, ${selected.country}`;
+                    }
+                    cityLocation.textContent = locationDetails;
+                    cityLocation.classList.remove('hidden');
+                }
             }
         } else {
             throw new Error('Invalid input. Please enter a valid city name or coordinates.');
         }
 
-        const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
-        const weatherResponse = await Promise.race([fetch(weatherUrl), timeoutPromise]);
-        if (!weatherResponse.ok) {
-            if (weatherResponse.status === 401) {
-                throw new Error('Invalid API key. Please verify your OpenWeatherMap API key in script.js.');
-            } else if (weatherResponse.status === 429) {
-                throw new Error('API rate limit exceeded. Please try again later.');
-            } else if (weatherResponse.status === 404) {
-                throw new Error('Weather data unavailable for this location. Ensure coordinates are valid.');
-            } else {
-                throw new Error(`Weather API error: ${await weatherResponse.text()}`);
+        // Fetch Weather details using Coordinates
+        if (!weatherDataFromAPI) {
+            const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
+            const weatherResponse = await Promise.race([fetch(weatherUrl), timeoutPromise]);
+            if (!weatherResponse.ok) {
+                handleHttpErrors(weatherResponse);
             }
+            weatherDataFromAPI = await weatherResponse.json();
         }
-        weatherDataFromAPI = await weatherResponse.json();
 
+        // Fetch Air Quality using Coordinates
         const airQualityResponse = await Promise.race([fetch(airQualityUrl.replace('{lat}', lat).replace('{lon}', lon)), timeoutPromise]);
         const airQualityData = airQualityResponse.ok ? await airQualityResponse.json() : { list: [{ main: { aqi: 'N/A' } }] };
 
-        const forecastResponse = await Promise.race([fetch(forecastUrl.replace('{lat}', lat).replace('{lon}', lon)), timeoutPromise]);
-        if (!forecastResponse.ok) {
-            if (forecastResponse.status === 429) {
-                throw new Error('API rate limit exceeded. Please try again later.');
+        // Fetch Forecast using Coordinates (if not already fetched in fallback)
+        if (!forecastData) {
+            const forecastResponse = await Promise.race([fetch(forecastUrl.replace('{lat}', lat).replace('{lon}', lon)), timeoutPromise]);
+            if (!forecastResponse.ok) {
+                handleHttpErrors(forecastResponse);
             }
-            throw new Error('Forecast data unavailable. Try a different location.');
+            forecastData = await forecastResponse.json();
         }
-        const forecastData = await forecastResponse.json();
 
+        // Populate Alerts
         let alertMessage = '';
         if (weatherDataFromAPI.alerts && weatherDataFromAPI.alerts.length > 0) {
             alertMessage = weatherDataFromAPI.alerts.map(alert => `${alert.event}: ${alert.description}`).join(' | ');
@@ -185,6 +201,7 @@ async function getWeather(location = null, selectedCity = null) {
             alertsDiv.classList.remove('hidden');
         }
 
+        // DOM Updates
         document.getElementById('city-name').textContent = displayName;
         document.getElementById('temperature').textContent = `${Math.round(weatherDataFromAPI.main.temp)}°C`;
         document.getElementById('feels-like').textContent = `${Math.round(weatherDataFromAPI.main.feels_like)}°C`;
@@ -215,6 +232,7 @@ async function getWeather(location = null, selectedCity = null) {
                             weatherDataFromAPI.weather[0].description.toLowerCase().includes('cloud') ? 'clouds' : 'clear';
         document.body.className = `flex flex-col min-h-screen ${weatherMain} bg-fixed font-inter transition-background duration-500`;
 
+        // Hourly Container
         const hourlyContainer = document.getElementById('hourly-container');
         hourlyContainer.innerHTML = '';
         const hourlyData = forecastData.list.slice(0, 8);
@@ -231,6 +249,7 @@ async function getWeather(location = null, selectedCity = null) {
             hourlyContainer.insertAdjacentHTML('beforeend', card);
         });
 
+        // Forecast Container
         const forecastContainer = document.getElementById('forecast-container');
         forecastContainer.innerHTML = '';
         const dailyData = forecastData.list.filter(item => item.dt_txt.includes('12:00:00'));
@@ -258,7 +277,25 @@ async function getWeather(location = null, selectedCity = null) {
         }
     } catch (error) {
         console.error('Error in getWeather:', error);
-        showError(error.message);
+        if (error.message === 'TIMEOUT') {
+            showError('Request timed out. This typically occurs if your browser, network firewall, VPN, or an ad-blocker is blocking "api.openweathermap.org" or if your API key was deactivated.');
+        } else if (error.message === 'KEY_SUSPENDED') {
+            showError('API Key inactive or suspended. OpenWeatherMap automatically disables keys exposed in public GitHub repos. To fix this, register a new free key at openweathermap.org and update your script.js file.');
+        } else {
+            showError(error.message);
+        }
+    }
+}
+
+function handleHttpErrors(response) {
+    if (response.status === 401) {
+        throw new Error('KEY_SUSPENDED');
+    } else if (response.status === 429) {
+        throw new Error('API rate limit exceeded. Please try again in a few moments.');
+    } else if (response.status === 404) {
+        throw new Error('Location data unavailable. Ensure spelling is correct.');
+    } else {
+        throw new Error(`Weather system error. Code: ${response.status}`);
     }
 }
 
@@ -271,7 +308,8 @@ function showError(message) {
     const welcomeDiv = document.getElementById('welcome');
     const suggestionsDiv = document.getElementById('suggestions');
     const cityLocation = document.getElementById('city-location');
-    errorDiv.textContent = message;
+    
+    errorDiv.innerHTML = `<span class="font-semibold">Error:</span> ${message}`;
     errorDiv.classList.remove('hidden');
     weatherInfo.classList.add('hidden');
     forecastSection.classList.add('hidden');
@@ -345,7 +383,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     suggestions.forEach(suggestion => {
                         const li = document.createElement('li');
                         li.textContent = suggestion.name;
-                        li.className = 'p-2 cursor-pointer text-white hover:bg-gray-300';
+                        // Beautiful, high-contrast hover & select states
+                        li.className = 'p-2 cursor-pointer text-gray-800 bg-white hover:bg-blue-600 hover:text-white transition-all duration-150 rounded text-sm';
                         li.addEventListener('click', () => {
                             cityInput.value = suggestion.name;
                             suggestionsDiv.classList.add('hidden');

@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="SkySense Weather: Accurate, real-time weather data for cities and villages.">
+    <title>SkySense Weather</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css">
+    <link rel="icon" href="https://openweathermap.org/img/wn/02d@2x.png" type="image/png">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Roboto:wght@400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body class="flex flex-col min-h-screen default bg-fixed font-inter transition-background duration-500">
+    <nav class="bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg shadow-md p-4 sticky top-0 z-10">
+        <div class="container mx-auto flex flex-col sm:flex-row items-center justify-between gap-4">
+            <h1 class="text-2xl font-bold text-white animate-scale-in">SkySense Weather</h1>
+            <div class="flex items-center w-full sm:w-auto space-x-2 relative">
+                <input type="text" id="city-input" placeholder="Enter city, country (e.g., London,GB or Tokyo,JP)" class="w-full sm:w-72 p-3 border border-gray-300 rounded-l-lg focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg text-white placeholder-gray-300 text-sm animate-placeholder text-shadow focus-glow" aria-label="Location search input">
+                <button id="voice-search-btn" class="p-3 bg-red-600 text-white hover:bg-red-700 transition duration-300 hover:scale-105 flex items-center justify-center rounded-r-lg">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="w-6 h-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 18.75a6 6 0 006-6v-1.5m-6 7.5a6 6 0 01-6-6v-1.5m6 7.5v3m6-3v3m-3-12v.75m-3 0v.75m0 0a.75.75 0 00-1.5 0M12 18.75h.008v.008H12z" />
+                    </svg>
+                </button>
+                <ul id="suggestions" class="hidden absolute top-full left-0 w-full sm:w-72 bg-white bg-opacity-90 backdrop-blur-lg rounded-lg shadow-lg mt-1 z-20" aria-label="City selection suggestions"></ul>
+                <button onclick="getWeather()" class="p-3 bg-blue-600 text-white rounded-r-lg hover:bg-blue-700 transition duration-300 hover:scale-105">Search</button>
+            </div>
+        </div>
+    </nav>
+
+    <main class="container mx-auto flex-grow p-4 sm:p-6 text-white">
+        <div id="loading" class="hidden flex justify-center mb-6">
+            <div class="animate-spin h-8 w-8 border-4 border-blue-600 border-t-transparent rounded-full"></div>
+        </div>
+        <div id="welcome" class="text-gray-200 mt-8 text-center text-shadow bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-6 rounded-xl animate-scale-in font-roboto">
+            <p class="text-lg sm:text-xl">Welcome! Enter a city name or coordinates to get started.</p>
+        </div>
+        <div id="error" class="text-red-300 mt-4 hidden text-center text-shadow bg-red-900 bg-opacity-60 p-4 rounded-lg"></div>
+        <div id="alerts" class="hidden text-yellow-300 mt-4 text-center text-shadow bg-yellow-900 bg-opacity-60 p-4 rounded-lg"></div>
+
+        <section id="weather-info" class="hidden animate-fade-in bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-4 sm:p-6 rounded-xl shadow-xl mb-6">
+            <h2 class="text-xl sm:text-2xl font-bold mb-4 text-shadow text-center">Current Weather</h2>
+            <div class="flex flex-col items-center gap-4">
+                <div class="text-center">
+                    <img id="weather-icon" src="" alt="Weather icon" class="w-16 h-16 sm:w-20 sm:h-20 mx-auto weather-icon-extra animate-bounce-in hover:scale-110 transition-transform duration-300">
+                    <p id="city-name" class="text-xl sm:text-2xl font-bold mt-2 text-shadow"></p>
+                    <p id="city-location" class="text-gray-200 text-sm sm:text-base text-shadow hidden"></p>
+                    <p id="time-context" class="text-gray-200 text-sm sm:text-base text-shadow"></p>
+                    <p id="description" class="text-gray-200 capitalize text-sm sm:text-base text-shadow mt-2"></p>
+                </div>
+                <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3">
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="temperature">
+                        <img src="https://img.icons8.com/ios/24/ffffff/thermometer.png" alt="Temperature icon" class="w-6 h-6 mx-auto mb-1 animate-pulse">
+                        <p id="temperature" class="text-xl sm:text-2xl font-bold text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Temperature</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="feels-like">
+                        <img src="https://img.icons8.com/ios/24/ffffff/temperature-sensitive.png" alt="Feels like icon" class="w-6 h-6 mx-auto mb-1 animate-pulse">
+                        <p id="feels-like" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Feels Like</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="humidity">
+                        <img src="https://img.icons8.com/ios/24/ffffff/humidity.png" alt="Humidity icon" class="w-6 h-6 mx-auto mb-1 animate-droplet">
+                        <p id="humidity" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Humidity</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="pressure">
+                        <img src="https://img.icons8.com/ios/24/ffffff/barometer.png" alt="Pressure icon" class="w-6 h-6 mx-auto mb-1 animate-pulse">
+                        <p id="pressure" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Pressure</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="wind">
+                        <img src="https://img.icons8.com/ios/24/ffffff/wind.png" alt="Wind icon" class="w-6 h-6 mx-auto mb-1 animate-windmill">
+                        <p id="wind" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Wind</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="precipitation">
+                        <img src="https://img.icons8.com/ios/24/ffffff/rain.png" alt="Precipitation icon" class="w-6 h-6 mx-auto mb-1 animate-droplet">
+                        <p id="precipitation" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-shadow">Precipitation</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="air-quality">
+                        <img src="https://img.icons8.com/ios/24/ffffff/air-quality.png" alt="Air quality icon" class="w-6 h-6 mx-auto mb-1 animate-pulse">
+                        <p id="air-quality" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Air Quality</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="uv-index">
+                        <img src="https://img.icons8.com/ios/24/ffffff/sun.png" alt="UV index icon" class="w-6 h-6 mx-auto mb-1 animate-pulse">
+                        <p id="uv-index" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-shadow">UV Index</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="sunrise">
+                        <img src="https://img.icons8.com/ios/24/ffffff/sunrise.png" alt="Sunrise icon" class="w-6 h-6 mx-auto mb-1 animate-sunrise">
+                        <p id="sunrise" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Sunrise</p>
+                    </div>
+                    <div class="weather-card bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-2 rounded-lg text-center animate-pulse-in" data-metric="sunset">
+                        <img src="https://img.icons8.com/ios/24/ffffff/sunset.png" alt="Sunset icon" class="w-6 h-6 mx-auto mb-1 animate-sunrise">
+                        <p id="sunset" class="text-sm sm:text-base text-shadow slide-in"></p>
+                        <p class="text-xs sm:text-sm text-gray-200 text-shadow">Sunset</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section id="hourly" class="hidden animate-fade-in bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-4 sm:p-6 rounded-xl shadow-xl mb-6">
+            <h2 class="text-lg sm:text-xl font-semibold mb-4 text-shadow text-center">Hourly Forecast</h2>
+            <div id="hourly-container" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2 sm:gap-3"></div>
+        </section>
+
+        <section id="forecast" class="hidden animate-fade-in bg-white bg-opacity-10 backdrop-filter backdrop-blur-lg p-4 sm:p-6 rounded-xl shadow-xl">
+            <h2 class="text-lg sm:text-xl font-semibold mb-4 text-shadow text-center">5-Day Forecast</h2>
+            <div id="forecast-container" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-2 sm:gap-3"></div>
+        </section>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>

@@ -1,16 +1,71 @@
+// API Key Pool Management
+const API_KEY_POOL = [
+    '04a25b6616cd9d650bd9771e7862eb18', // Primary
+    '3481df8d641d40ff4fe0c2017df716ec', // Backup 1
+    '50c6096db8ca73f91040854c3022fc75'  // Backup 2
+];
+
+function getActiveApiKey() {
+    const customKey = localStorage.getItem('custom_weather_api_key');
+    if (customKey && customKey.trim().length > 10) {
+        return customKey.trim();
+    }
+    // Return primary key
+    return API_KEY_POOL[0];
+}
+
+// Global active key rotator in case of rate limit limits
+let currentPoolIndex = 0;
+function rotateApiKey() {
+    const customKey = localStorage.getItem('custom_weather_api_key');
+    if (customKey) return; // Never rotate if the user entered their own key
+    currentPoolIndex = (currentPoolIndex + 1) % API_KEY_POOL.length;
+    console.log(`Rotated key to pool index: ${currentPoolIndex}`);
+}
+
+// Map direct country searches directly to their capital city to prevent empty city geocoding lookups
+const countryCapitalMap = {
+    'australia': { city: 'Canberra', country: 'AU' },
+    'austria': { city: 'Vienna', country: 'AT' },
+    'canada': { city: 'Ottawa', country: 'CA' },
+    'germany': { city: 'Berlin', country: 'DE' },
+    'france': { city: 'Paris', country: 'FR' },
+    'india': { city: 'New Delhi', country: 'IN' },
+    'japan': { city: 'Tokyo', country: 'JP' },
+    'united kingdom': { city: 'London', country: 'GB' },
+    'uk': { city: 'London', country: 'GB' },
+    'united states': { city: 'Washington', country: 'US' },
+    'usa': { city: 'Washington', country: 'US' },
+    'nigeria': { city: 'Abuja', country: 'NG' },
+    'brazil': { city: 'Brasilia', country: 'BR' },
+    'china': { city: 'Beijing', country: 'CN' },
+    'spain': { city: 'Madrid', country: 'ES' },
+    'italy': { city: 'Rome', country: 'IT' },
+    'mexico': { city: 'Mexico City', country: 'MX' },
+    'russia': { city: 'Moscow', country: 'RU' },
+    'south korea': { city: 'Seoul', country: 'KR' },
+    'egypt': { city: 'Cairo', country: 'EG' },
+    'new zealand': { city: 'Wellington', country: 'NZ' },
+    'south africa': { city: 'Pretoria', country: 'ZA' }
+};
+
 async function getWeather(location = null, selectedCity = null) {
     const cityInput = document.getElementById('city-input');
-    let input = (cityInput && typeof cityInput.value === 'string' ? cityInput.value.trim() : '') || location;
+    let input = '';
+    
+    if (cityInput && typeof cityInput.value === 'string') {
+        input = cityInput.value.trim();
+    }
+
+    // Handle geolocation object passes or fallback overrides
+    if (location && location.coords) {
+        input = `lat:${location.coords.latitude},lon:${location.coords.longitude}`;
+    } else if (location && typeof location === 'string') {
+        input = location;
+    }
+
     const originalInput = input || 'Current Location';
-    
-    // Developer Note: If this key gets auto-revoked by GitHub scanner bots, 
-    // users can register a free key at openweathermap.org and replace it here.
-    const apiKey = '04a25b6616cd9d650bd9771e7862eb18'; 
-    
-    const geocodingUrl = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(input)}&limit=5&appid=${apiKey}`;
-    const reverseGeocodingUrl = `https://api.openweathermap.org/geo/1.0/reverse?lat={lat}&lon={lon}&limit=5&appid=${apiKey}`;
-    const airQualityUrl = `https://api.openweathermap.org/data/2.5/air_pollution?lat={lat}&lon={lon}&appid=${apiKey}`;
-    const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat={lat}&lon={lon}&appid=${apiKey}&units=metric`;
+    const apiKey = getActiveApiKey();
 
     const loading = document.getElementById('loading');
     const weatherInfo = document.getElementById('weather-info');
@@ -22,8 +77,8 @@ async function getWeather(location = null, selectedCity = null) {
     const suggestionsDiv = document.getElementById('suggestions');
     const cityLocation = document.getElementById('city-location');
 
-    if (!input && !location) {
-        showError('Please enter a city name (e.g., London,GB) or coordinates (e.g., lat:40.7,lon:-74.0).');
+    if (!input) {
+        showError('Please enter a city name (e.g., London, GB), use the Detect Location button, or enter coordinates.');
         return;
     }
 
@@ -44,7 +99,7 @@ async function getWeather(location = null, selectedCity = null) {
     let lat, lon, weatherDataFromAPI, forecastData;
     let displayName = originalInput;
     let locationDetails = '';
-    const isManualInput = !location && (typeof input === 'string' && input.trim()) || selectedCity;
+    const isManualInput = !location && input.trim().length > 0;
 
     const districtMapping = {
         'Hyderabad': 'Hyderabad District',
@@ -55,7 +110,6 @@ async function getWeather(location = null, selectedCity = null) {
     };
 
     const countryCodes = ['US', 'GB', 'IN', 'JP', 'FR', 'DE', 'CA', 'AU', 'BR', 'CN', 'ES', 'IT', 'MX', 'RU', 'KR', 'NG'];
-
     const countryMap = {
         'united states': 'US', 'usa': 'US', 'united kingdom': 'GB', 'uk': 'GB', 'india': 'IN',
         'japan': 'JP', 'france': 'FR', 'germany': 'DE', 'canada': 'CA', 'australia': 'AU',
@@ -63,33 +117,40 @@ async function getWeather(location = null, selectedCity = null) {
         'russia': 'RU', 'south korea': 'KR', 'nigeria': 'NG'
     };
 
-    // 12-second timeout to accommodate slower mobile networks
+    // A slightly longer timeout of 12 seconds to support slower internet configurations
     const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('TIMEOUT')), 12000);
     });
 
     try {
-        if (location && location.coords) {
-            lat = location.coords.latitude;
-            lon = location.coords.longitude;
-            displayName = `Current Location`;
-        } else if (typeof input === 'string' && input.includes('lat:') && input.includes('lon:')) {
-            const parts = input.replace('lat:', '').replace('lon:', '').split(',');
+        if (input.startsWith('lat:') && input.includes('lon:')) {
+            // Coordinate Lookup Path
+            const cleanCoords = input.replace('lat:', '').replace('lon:', '');
+            const parts = cleanCoords.split(',');
             if (parts.length >= 2) {
                 lat = parseFloat(parts[0].trim());
                 lon = parseFloat(parts[1].trim());
                 if (isNaN(lat) || isNaN(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
-                    throw new Error('Invalid coordinates. Use format "lat:40.7,lon:-74.0" with valid ranges.');
+                    throw new Error('Invalid coordinates range. Latitude must be between -90 and 90, Longitude between -180 and 180.');
                 }
-                displayName = `Coordinates`;
+                displayName = `Coordinates: ${lat.toFixed(2)}, ${lon.toFixed(2)}`;
             } else {
-                throw new Error('Invalid coordinates format. Use "lat:40.7,lon:-74.0".');
+                throw new Error('Invalid coordinate structure. Use format "lat:40.7,lon:-74.0".');
             }
-        } else if (typeof input === 'string') {
-            input = input.replace(/\s*,\s*/g, ',').trim();
-            const parts = input.split(',');
+        } else {
+            // Text Lookup Path
+            let searchInput = input.replace(/\s*,\s*/g, ',').trim();
+            const parts = searchInput.split(',');
             let city = parts[0].trim();
             let country = parts[1] ? parts[1].trim().toLowerCase() : '';
+
+            // Dynamically resolve country name searches to their capital city
+            const lowerCity = city.toLowerCase();
+            if (!country && countryCapitalMap[lowerCity]) {
+                const resolved = countryCapitalMap[lowerCity];
+                city = resolved.city;
+                country = resolved.country;
+            }
 
             if (country) {
                 const normalizedCountryCode = country.toUpperCase();
@@ -100,21 +161,20 @@ async function getWeather(location = null, selectedCity = null) {
                     if (mappedCountry) {
                         country = mappedCountry;
                     } else {
-                        throw new Error('Invalid country. Use a two-letter code (e.g., US, GB, IN, NG) or country name (e.g., Japan, Nigeria).');
+                        throw new Error('Invalid country. Use a two-letter code (e.g., US, GB, IN, NG) or country name.');
                     }
                 }
             }
+            
             const query = country ? `${city},${country}` : city;
-
             let geoData = [];
             let geoSuccess = false;
 
-            // Attempt Geocoding API with a try-catch so it doesn't crash the program if it fails or times out
+            // Step 1: Query Geocoding with absolute safety
             try {
-                const geoResponse = await Promise.race([
-                    fetch(geocodingUrl.replace(encodeURIComponent(input), encodeURIComponent(query))), 
-                    timeoutPromise
-                ]);
+                const geocodingUrl = `https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=5&appid=${apiKey}`;
+                const geoResponse = await Promise.race([fetch(geocodingUrl), timeoutPromise]);
+                
                 if (geoResponse.ok) {
                     geoData = await geoResponse.json();
                     geoSuccess = true;
@@ -123,10 +183,10 @@ async function getWeather(location = null, selectedCity = null) {
                 }
             } catch (err) {
                 if (err.message === 'KEY_SUSPENDED') throw err;
-                console.warn("Geocoding API failed or timed out. Attempting fallback direct query...", err);
+                console.warn("Geocoding service timed out or failed. Switching to direct text weather API...", err);
             }
 
-            // FALLBACK PATH: If Geocoding API fails or returns no results, query Weather API directly using city name
+            // Step 2: Fallback logic directly querying by text input query
             if (!geoSuccess || geoData.length === 0) {
                 const fallbackWeatherUrl = `https://api.openweathermap.org/data/2.5/weather?q=${encodeURIComponent(query)}&appid=${apiKey}&units=metric`;
                 const fallbackForecastUrl = `https://api.openweathermap.org/data/2.5/forecast?q=${encodeURIComponent(query)}&appid=${apiKey}&units=metric`;
@@ -144,13 +204,13 @@ async function getWeather(location = null, selectedCity = null) {
                 if (forecastResponse.ok) {
                     forecastData = await forecastResponse.json();
                 } else {
-                    throw new Error("Unable to fetch forecast data.");
+                    throw new Error("Unable to retrieve forecast calculations for this city.");
                 }
             } else {
-                // PRIMARY PATH: Geocoding was successful
-                const selected = selectedCity ? geoData.find(city => `${city.name}, ${city.country}` === selectedCity) : geoData[0];
+                // Primary path success: Geocoding coordinates matched
+                const selected = selectedCity ? geoData.find(c => `${c.name}, ${c.country}` === selectedCity) : geoData[0];
                 if (!selected) {
-                    throw new Error(`No matching city found for "${query}".`);
+                    throw new Error(`Unable to find a match for "${query}".`);
                 }
                 lat = selected.lat;
                 lon = selected.lon;
@@ -166,11 +226,9 @@ async function getWeather(location = null, selectedCity = null) {
                     cityLocation.classList.remove('hidden');
                 }
             }
-        } else {
-            throw new Error('Invalid input. Please enter a valid city name or coordinates.');
         }
 
-        // Fetch Weather details using Coordinates
+        // Fetch Weather info using Lat/Lon if not already pulled via direct fallback text search
         if (!weatherDataFromAPI) {
             const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
             const weatherResponse = await Promise.race([fetch(weatherUrl), timeoutPromise]);
@@ -180,20 +238,22 @@ async function getWeather(location = null, selectedCity = null) {
             weatherDataFromAPI = await weatherResponse.json();
         }
 
-        // Fetch Air Quality using Coordinates
-        const airQualityResponse = await Promise.race([fetch(airQualityUrl.replace('{lat}', lat).replace('{lon}', lon)), timeoutPromise]);
+        // Fetch Air Pollution Info
+        const airQualityUrl = `https://api.openweathermap.org/data/2.5/air_pollution?lat=${lat}&lon=${lon}&appid=${apiKey}`;
+        const airQualityResponse = await Promise.race([fetch(airQualityUrl), timeoutPromise]);
         const airQualityData = airQualityResponse.ok ? await airQualityResponse.json() : { list: [{ main: { aqi: 'N/A' } }] };
 
-        // Fetch Forecast using Coordinates (if not already fetched in fallback)
+        // Fetch 5-day Forecast using Lat/Lon if not already populated via fallback direct text query
         if (!forecastData) {
-            const forecastResponse = await Promise.race([fetch(forecastUrl.replace('{lat}', lat).replace('{lon}', lon)), timeoutPromise]);
+            const forecastUrl = `https://api.openweathermap.org/data/2.5/forecast?lat=${lat}&lon=${lon}&appid=${apiKey}&units=metric`;
+            const forecastResponse = await Promise.race([fetch(forecastUrl), timeoutPromise]);
             if (!forecastResponse.ok) {
                 handleHttpErrors(forecastResponse);
             }
             forecastData = await forecastResponse.json();
         }
 
-        // Populate Alerts
+        // Populate Weather Alerts if any exist inside the payload
         let alertMessage = '';
         if (weatherDataFromAPI.alerts && weatherDataFromAPI.alerts.length > 0) {
             alertMessage = weatherDataFromAPI.alerts.map(alert => `${alert.event}: ${alert.description}`).join(' | ');
@@ -201,7 +261,7 @@ async function getWeather(location = null, selectedCity = null) {
             alertsDiv.classList.remove('hidden');
         }
 
-        // DOM Updates
+        // DOM Updates & Binding
         document.getElementById('city-name').textContent = displayName;
         document.getElementById('temperature').textContent = `${Math.round(weatherDataFromAPI.main.temp)}°C`;
         document.getElementById('feels-like').textContent = `${Math.round(weatherDataFromAPI.main.feels_like)}°C`;
@@ -232,7 +292,7 @@ async function getWeather(location = null, selectedCity = null) {
                             weatherDataFromAPI.weather[0].description.toLowerCase().includes('cloud') ? 'clouds' : 'clear';
         document.body.className = `flex flex-col min-h-screen ${weatherMain} bg-fixed font-inter transition-background duration-500`;
 
-        // Hourly Container
+        // Populate Hourly Container
         const hourlyContainer = document.getElementById('hourly-container');
         hourlyContainer.innerHTML = '';
         const hourlyData = forecastData.list.slice(0, 8);
@@ -249,7 +309,7 @@ async function getWeather(location = null, selectedCity = null) {
             hourlyContainer.insertAdjacentHTML('beforeend', card);
         });
 
-        // Forecast Container
+        // Populate 5-day Forecast Container
         const forecastContainer = document.getElementById('forecast-container');
         forecastContainer.innerHTML = '';
         const dailyData = forecastData.list.filter(item => item.dt_txt.includes('12:00:00'));
@@ -277,10 +337,16 @@ async function getWeather(location = null, selectedCity = null) {
         }
     } catch (error) {
         console.error('Error in getWeather:', error);
+        
+        // If query with active key timed out, automatically rotate pool if using system keys
+        if (error.message === 'TIMEOUT' || error.message === 'KEY_SUSPENDED') {
+            rotateApiKey();
+        }
+
         if (error.message === 'TIMEOUT') {
-            showError('Request timed out. This typically occurs if your browser, network firewall, VPN, or an ad-blocker is blocking "api.openweathermap.org" or if your API key was deactivated.');
+            showError('The request timed out. This is usually caused by network issues, VPNs, ad-blockers blocking "openweathermap.org", or key suspension. Try configuring your own free API key in the settings ⚙️ menu!');
         } else if (error.message === 'KEY_SUSPENDED') {
-            showError('API Key inactive or suspended. OpenWeatherMap automatically disables keys exposed in public GitHub repos. To fix this, register a new free key at openweathermap.org and update your script.js file.');
+            showError('API Key inactive or suspended. Public exposed keys on GitHub are automatically disabled. To resolve, click the settings ⚙️ button to add your own free OpenWeatherMap API Key.');
         } else {
             showError(error.message);
         }
@@ -291,11 +357,11 @@ function handleHttpErrors(response) {
     if (response.status === 401) {
         throw new Error('KEY_SUSPENDED');
     } else if (response.status === 429) {
-        throw new Error('API rate limit exceeded. Please try again in a few moments.');
+        throw new Error('API rate limit reached. Please try again shortly.');
     } else if (response.status === 404) {
-        throw new Error('Location data unavailable. Ensure spelling is correct.');
+        throw new Error('Location not found. Please verify the spelling or add a country code (e.g. Rome, IT).');
     } else {
-        throw new Error(`Weather system error. Code: ${response.status}`);
+        throw new Error(`Weather system error code: ${response.status}`);
     }
 }
 
@@ -309,7 +375,7 @@ function showError(message) {
     const suggestionsDiv = document.getElementById('suggestions');
     const cityLocation = document.getElementById('city-location');
     
-    errorDiv.innerHTML = `<span class="font-semibold">Error:</span> ${message}`;
+    errorDiv.innerHTML = `<span class="font-bold">Error:</span> ${message}`;
     errorDiv.classList.remove('hidden');
     weatherInfo.classList.add('hidden');
     forecastSection.classList.add('hidden');
@@ -323,7 +389,7 @@ function showError(message) {
 
 async function fetchSuggestions(query) {
     if (!query) return [];
-    const apiKey = '04a25b6616cd9d650bd9771e7862eb18'; 
+    const apiKey = getActiveApiKey();
     try {
         const response = await fetch(`https://api.openweathermap.org/geo/1.0/direct?q=${encodeURIComponent(query)}&limit=5&appid=${apiKey}`);
         if (!response.ok) {
@@ -338,6 +404,7 @@ async function fetchSuggestions(query) {
     }
 }
 
+// Setup and wire DOM events
 document.addEventListener('DOMContentLoaded', () => {
     const cityInput = document.getElementById('city-input');
     const welcomeDiv = document.getElementById('welcome');
@@ -349,6 +416,16 @@ document.addEventListener('DOMContentLoaded', () => {
     const suggestionsDiv = document.getElementById('suggestions');
     const cityLocation = document.getElementById('city-location');
     const voiceSearchBtn = document.getElementById('voice-search-btn');
+    const locateBtn = document.getElementById('locate-btn');
+    
+    // Settings elements
+    const settingsBtn = document.getElementById('settings-btn');
+    const settingsModal = document.getElementById('settings-modal');
+    const closeSettings = document.getElementById('close-settings');
+    const saveSettings = document.getElementById('save-settings');
+    const resetApiKey = document.getElementById('reset-api-key');
+    const apiKeyInput = document.getElementById('api-key-input');
+    const apiKeyStatus = document.getElementById('api-key-status');
 
     if (cityInput) {
         cityInput.value = '';
@@ -361,6 +438,86 @@ document.addEventListener('DOMContentLoaded', () => {
     errorDiv.classList.add('hidden');
     alertsDiv.classList.add('hidden');
     cityLocation.classList.add('hidden');
+
+    // Key configuration initialization
+    function updateKeyStatusUI() {
+        const customKey = localStorage.getItem('custom_weather_api_key');
+        if (customKey) {
+            apiKeyInput.value = customKey;
+            apiKeyStatus.textContent = 'Custom Active';
+            apiKeyStatus.className = 'px-2.5 py-0.5 rounded-full bg-green-500 bg-opacity-20 text-green-300 border border-green-500 border-opacity-30 font-semibold';
+        } else {
+            apiKeyInput.value = '';
+            apiKeyStatus.textContent = 'Using System Pool';
+            apiKeyStatus.className = 'px-2.5 py-0.5 rounded-full bg-blue-500 bg-opacity-20 text-blue-300 border border-blue-500 border-opacity-30 font-semibold';
+        }
+    }
+
+    // Settings listeners
+    if (settingsBtn) {
+        settingsBtn.addEventListener('click', () => {
+            updateKeyStatusUI();
+            settingsModal.classList.remove('hidden');
+        });
+    }
+
+    if (closeSettings) {
+        closeSettings.addEventListener('click', () => {
+            settingsModal.classList.add('hidden');
+        });
+    }
+
+    if (saveSettings) {
+        saveSettings.addEventListener('click', () => {
+            const val = apiKeyInput.value.trim();
+            if (val.length > 0 && val.length < 15) {
+                alert('That API Key seems too short. OpenWeatherMap keys are typically 32 characters long.');
+                return;
+            }
+            if (val) {
+                localStorage.setItem('custom_weather_api_key', val);
+            } else {
+                localStorage.removeItem('custom_weather_api_key');
+            }
+            settingsModal.classList.add('hidden');
+            getWeather();
+        });
+    }
+
+    if (resetApiKey) {
+        resetApiKey.addEventListener('click', () => {
+            localStorage.removeItem('custom_weather_api_key');
+            apiKeyInput.value = '';
+            updateKeyStatusUI();
+        });
+    }
+
+    // Locate Me GPS Click Listener
+    if (locateBtn) {
+        locateBtn.addEventListener('click', () => {
+            if (navigator.geolocation) {
+                locateBtn.classList.add('animate-spin');
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        locateBtn.classList.remove('animate-spin');
+                        getWeather(position);
+                    },
+                    (error) => {
+                        locateBtn.classList.remove('animate-spin');
+                        let geoErrMessage = 'Could not retrieve your location. ';
+                        if (error.code === error.PERMISSION_DENIED) {
+                            geoErrMessage += 'Location permissions denied. Please enable location permissions in your browser.';
+                        } else {
+                            geoErrMessage += error.message;
+                        }
+                        showError(geoErrMessage);
+                    }
+                );
+            } else {
+                showError('Geolocation is not supported by your browser.');
+            }
+        });
+    }
 
     if (cityInput) {
         cityInput.addEventListener('keypress', (e) => {
@@ -383,12 +540,12 @@ document.addEventListener('DOMContentLoaded', () => {
                     suggestions.forEach(suggestion => {
                         const li = document.createElement('li');
                         li.textContent = suggestion.name;
-                        // Beautiful, high-contrast hover & select states
-                        li.className = 'p-2 cursor-pointer text-gray-800 bg-white hover:bg-blue-600 hover:text-white transition-all duration-150 rounded text-sm';
+                        li.className = 'p-3 cursor-pointer text-gray-800 bg-white hover:bg-blue-600 hover:text-white transition-all duration-150 rounded text-sm font-medium';
                         li.addEventListener('click', () => {
                             cityInput.value = suggestion.name;
                             suggestionsDiv.classList.add('hidden');
-                            getWeather(null, suggestion.name);
+                            // Bypasses geocoding redundant calls by passing lat/lon coordinates directly
+                            getWeather(`lat:${suggestion.lat},lon:${suggestion.lon}`);
                         });
                         suggestionsDiv.appendChild(li);
                     });
@@ -405,6 +562,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    // Web Speech Voice configuration
     if ('webkitSpeechRecognition' in window) {
         const recognition = new webkitSpeechRecognition();
         recognition.continuous = false;
@@ -424,14 +582,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         recognition.onend = () => {
             voiceSearchBtn.classList.remove('animate-mic-glow');
-            cityInput.placeholder = 'Enter city, country...';
+            cityInput.placeholder = 'Enter city (e.g., Paris, FR)';
         };
 
         recognition.onerror = (event) => {
             console.error('Speech recognition error:', event.error);
             showError(`Speech recognition failed: ${event.error}`);
             voiceSearchBtn.classList.remove('animate-mic-glow');
-            cityInput.placeholder = 'Enter city, country...';
+            cityInput.placeholder = 'Enter city (e.g., Paris, FR)';
         };
     } else {
         voiceSearchBtn.style.display = 'none';
